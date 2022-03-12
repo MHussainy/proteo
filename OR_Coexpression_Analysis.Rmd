@@ -1,0 +1,115 @@
+---
+title: "Coexpression analysis of olfactory receptor genes"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+We perform MCMC sampling to draw samples uniformly from the set of binary matrices with fixed marginals. We use the 'Curveball' algorithm of 
+Strona et al., Nat.Comm 2014, https://doi.org/10.1038/ncomms5114.
+
+```{r curveball, include=TRUE}
+# This is the R code provided in Strona et al., Supplementary Software 5
+curve_ball<-function(m){
+  RC=dim(m)
+  R=RC[1]
+  C=RC[2]
+  hp=list()
+  for (row in 1:dim(m)[1]) {hp[[row]]=(which(m[row,]==1))}
+  l_hp=length(hp)
+  for (rep in 1:(5*l_hp)){
+    AB=sample(1:l_hp,2)
+    a=hp[[AB[1]]]
+    b=hp[[AB[2]]]
+    ab=intersect(a,b)
+    l_ab=length(ab)
+    l_a=length(a)
+    l_b=length(b)
+    if ((l_ab %in% c(l_a,l_b))==F){
+      tot=setdiff(c(a,b),ab)
+      l_tot=length(tot)
+      tot=sample(tot, l_tot, replace = FALSE, prob = NULL)
+      L=l_a-l_ab
+      hp[[AB[1]]] = c(ab,tot[1:L])
+      hp[[AB[2]]] = c(ab,tot[(L+1):l_tot])}
+    
+  }
+  rm=matrix(0,R,C)
+  for (row in 1:R){rm[row,hp[[row]]]=1}
+  rm
+}
+```
+
+Let expression_mat the original (binarized) genes x cells expression matrix. It contains a 1 whenever the gene is detected in a cell with at least one count. 
+Let assignment_mat the (binary) OR clusters x genes incidence matrix. It contains a 1 at position (c,g) exactly if a gene  g is localized in cluster c.
+Both matrices are available in the Supplementary Materials.
+
+```{r message=FALSE, warning=FALSE}
+require(readxl)
+expression_mat <- read_xlsx("~/Documents/OR_Manuscript/Manuscript/Excel2_Expression_and_Assignment_mat.xlsx",sheet = 1,)
+expression_mat <- as.data.frame(expression_mat)
+rownames(expression_mat) <- expression_mat[,1]; expression_mat <- expression_mat[,-1]
+expression_mat <- as.matrix(expression_mat)
+
+assignment_mat <- as.matrix(read_xlsx("~/Documents/OR_Manuscript/Manuscript/Excel2_Expression_and_Assignment_mat.xlsx",sheet = 2))
+assignment_mat <- as.data.frame(assignment_mat)
+rownames(assignment_mat) <- assignment_mat[,1]; assignment_mat <- assignment_mat[,-1]
+assignment_mat <- apply(assignment_mat,2, function(x){as.numeric(x)})
+assignment_mat <- as.matrix(assignment_mat)
+```
+
+For each MCMC sample, we record the number of OR genes (co-)expressed in each OR cluster.
+
+```{r}
+cells = ncol(expression_mat)
+MCMC_samples = 10^3 # number of MCMC samples we want to draw
+MCMC_stats = matrix(0,nrow=nrow(assignment_mat),ncol=MCMC_samples)
+# MCMC_stats contains the number of times an OR cluster had >=2 coexpressed genes (across all cells), for each OR cluster
+
+mat = expression_mat
+# assignment_mat %*% mat is a OR clusters x cells matrix
+# containing the #active OR genes (in a given cluster and a given cell)
+# MCMC_stats[,j] containts, for each OR cluster the #cells in which  
+# coexpression  found for this cluster.
+MCMC_stats[,1] = rowSums((assignment_mat %*% mat) > 1)
+# The original expression matrix is counted as the first sample
+cat("Progress: ")
+for (j in 2:MCMC_samples){
+  mat = curve_ball(mat)
+  MCMC_stats[,j] = rowSums((assignment_mat %*% mat) > 1)
+  if(j %% (MCMC_samples %/% 25) == 0) cat(".")
+}
+cat("\n")
+
+#summary(t(MCMC_stats))
+```
+
+Let expression_mat the original (binarized) genes x cells expression matrix. It contains a 1 whenever the gene is detected in a cell with at least one count. 
+Let assignment_mat the (binary) OR clusters x genes incidence matrix. It contains a 1 at position (c,g) exactly if a gene  g is localized in cluster c.
+Both matrices are available in the Supplementary Materials.
+
+The test statistic will be relative frequency (in the population of all cells) by which an OR cluster has more than 1 OR gene expressed. 
+```{r}
+
+coexpressed = colSums(MCMC_stats) / cells # the number of times we observed coexpressed genes (across all clusters, per cell), for each MCMC step
+
+original_stats = sum((assignment_mat %*% expression_mat) > 1) / cells
+null_distr = table(coexpressed)
+location = as.numeric(names(null_distr))
+probabilities = as.numeric(null_distr)
+probabilities = probabilities/sum(probabilities)
+
+plot(location,probabilities,type="h",lwd=4,col="dark grey",
+     xlab="Average #OR clusters per cell containing coexpressed OR genes",
+     ylab="relative frequency")
+abline(v=original_stats,col="red",lwd=2,lty=3)
+
+larger = which(location >= original_stats)
+pvalue = sum(probabilities[larger])
+legend("topright",paste("p-value:",signif(pvalue,digits=3)),bty="n")
+
+```
+
+

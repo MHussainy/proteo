@@ -1,4 +1,4 @@
-# OR Expression Patterns
+# OR Expression Analysis
 Data obtained from Fletcher et al., 2017 (GEO:GSE95601). File: GSE95601_oeHBCdiff_Cufflinks_eSet.Rda.gz 
 
 
